@@ -30,7 +30,7 @@
 ***************************
 СЕКЦИЯ ТОВАРЫ
 
-Конфигурация магазина
+Конфигурация магазина {shop_config}
 Поле
     1. валюта text check length = 3
     2. НДС включено в цену или нет nds bool
@@ -53,13 +53,20 @@
     12. Created_at
     13. Updated_at
 Индексы:
-    #partial index on WHERE is_deleted = FALSE AND is_publish = TRUE  тоже надо ставить индекс
-    //CREATE INDEX access_log_client_ip_ix ON access_log (client_ip)
-    //WHERE NOT (client_ip > inet '192.168.100.0' AND
-    //           client_ip < inet '192.168.100.255');
+CREATE INDEX ON public.product_category (parent_id);
+
+Далее у меня есть вопрос, у меня будет 2 разных вывода категорий, списком и отдельно, как мне лучше накинуть индекс?
+Я на этой таблице сделал пока так, но мне кажется, это не есть правильно.
+
+    Для вывода категорий списком
+    CREATE INDEX public_product_category_partial_active_list ON public.product_category (id, title, image_intro, intro, slug, parent_id)
+    WHERE is_deleted = FALSE AND is_publish = TRUE
+
+    Для вывода категорий отдельно
+    CREATE INDEX public_product_category_partial_active_item ON public.product_category (id, title, longtitle, image, description, content, slug, parent_id)
+    WHERE is_deleted = FALSE AND is_publish = TRUE
 
 -----------------------------------------
-
 
 ТОВАР {product}
 Поля
@@ -73,7 +80,7 @@
     8. Текст: content text
     9. Soft Delete: is_deleted bool
     10. Опубликован ли: is_publish bool
-    11. Статус
+    11. Статус product_status_id
     12. vendor_id (производитель)
     13. product_category_id
     14. Особый special bool
@@ -85,7 +92,7 @@
     #12,13 обычные
     (далее обычные я здесь упоминать не буду, идея в том, что на каждую связь по внешнему ключу я ставлю индекс
      также я ставлю индекс на unique ~ впрочем, в постгрес, он и так на него автоматически ставится)
-    #partial on WHERE is_deleted = FALSE AND is_publish = TRUE
+    #partial on WHERE is_deleted = FALSE AND is_publish = TRUE - пока не накидываю, не до конца понятно, как
 ------------------------
 
 СТАТУС ТОВАРА Справочник {product_status}
@@ -100,6 +107,11 @@
     2. product_id
     3. price
     4. old_price
+    5. content
+    6. description
+    7. image
+    8. is_deleted          BOOLEAN,
+    9. is_publish          BOOLEAN,
 Индексы
     # sku unique
 (сюда поставить 2 constraint на
@@ -136,7 +148,7 @@
 
 ТИП СКИДКИ Справочник {discount_type}
 Поля
-    1. name
+    1. type
 (допустим, пока что пусть будут 2 штуки - просто отнимается цена и скидка в процентах)
 -------------------------------------
 
@@ -148,7 +160,7 @@
     4. Дата и время начала discount_start timestamp without timezone
     5. Дата и время окончания discount_end timestamp without timezone
 Constraints
-    1. Если discount_type_id процентный, то не более 100%
+    1. Если discount_type_id процентный, то не более 100, только вот как бы это сделать
     2. значение больше 0
 Индексы
     индекс на выражение, когда берем из timestamp дату - обычно скидка по дате
@@ -213,6 +225,7 @@ Constraints
 
 ПРОИЗВОДИТЕЛЬ. Справочник {vendor}
 Поля
+    1. name
     1. Страна country text
     2. Сайт page text
     3. email email text
@@ -334,7 +347,7 @@ CONSTRAINT
 -------------
 
 Платежные системы Справочник {payment}
-(сюда же оплата курьеру на руки, при самовывозе)
+(сюда же оплата курьеру на руки, при самовывозе - пока это черновой вариант)
 Поле
     1. name
     2. description
