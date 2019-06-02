@@ -299,12 +299,13 @@ CONSTRAINT
     7. Сумма (по корзине, без учета доставки) cart_cost money
     8. Сумма доставки delivery_cost money
     9. Сумма общая cost money
+    10. payment_id
     10. Created_at
     11. Updated_at
 (я думал вынести п 3-6 в отдельную таблицу order_attributes, но потом не понял, какой в этом смысл)
 ----------------------------
 
-ЗАКАЗ К АРТИКУЛУ И КОЛИЧЕСТВО {order2product}
+ЗАКАЗ К АРТИКУЛУ И КОЛИЧЕСТВО {sku2order}
 # артикул - SKU number - stock keeping unit number
 Поля
     1. sku_id
@@ -315,7 +316,6 @@ CONSTRAINT
 АДРЕС ЗАКАЗА {order_address}
 Поля
     1. Телефон phone text
-    2. email text
     3. Страна country text
     4. Индекс zip text
     5. Регион region text
@@ -324,19 +324,17 @@ CONSTRAINT
     8. Улица street text
     9. Строение building text
     10. Офис/комната/помещение room text
-    11. order_id
-    12. Created_at
-    13. Updated_at
+    11. Created_at
+    12. Updated_at
 
 --------------
 СОПРОВОЖДЕНИЕ ЗАКАЗА {order_processing}
 Поля
     1. order_id
-    2. payment_id
-    3. user_id (ссылка на user_id с правами manager)
-    4. status_id
-    5. чек check (если статус не оплачен - null)
-    6. Комментарий comment text
+    2. user_id (ссылка на user_id с правами manager)
+    3. status_id
+    4. чек cash_voucher (если статус не оплачен - null)
+    5. Комментарий comment text
     ~ юрик / физик, нужно предоставить такой-то пакет документов и проч
 
 -------------
@@ -354,7 +352,6 @@ CONSTRAINT
     3. currency
     4. is_active bool
     5. кастомные свойства options jsonb
-    6. логин
     8  комиссия fee
     9. ИНН inn
     10. комментарий text
@@ -375,10 +372,11 @@ CONSTRAINT
     5. email
     6. password
     4. является физиком или юриком - это enum, но в разработке с ним проблемы, что что 0 и 1 smallint
+    5. legal_person_id (поставлю пока 1 клиент - 1 юрлицо, может быть null)
     5. customer_address_id
-    ... тут еще могут быть токены, но я их опущу
+    ... тут еще могут быть токены, соли но я их опущу
 
-Юрлицо
+Юрлицо {legal_person}
 Поля
 т.к. там огромные числа, поставлю на все text
     1. ИНН inn
@@ -389,7 +387,6 @@ CONSTRAINT
     6. город (банка) city
     7. К/с ks
     8. БИК bik
-    9. customer_id
     10. legal_address_id
     11. defacto_address_id
     12. Created_at
@@ -409,8 +406,6 @@ CONSTRAINT
     8. Улица street text
     9. Строение building text
     10. Офис/комната/помещение room text
-    11. Created_at
-    12. Updated_at
 
 --------------------------------
 Пользователи на стороне сайта ~ admin, manager, content etc

@@ -10,14 +10,3 @@ services:
       POSTGRES_DB: md_ecommerce
     ports:
       - "54321:5432"
-  manager-mysql:
-    image: mysql:5.7
-    volumes:
-      - ./storage/docker/mysql:/var/lib/mysql
-      - ./test/demo4/sql_dump:/var/www
-    environment:
-      MYSQL_ROOT_PASSWORD: secret
-      MYSQL_USER: root
-      MYSQL_DATABASE: demo4
-    ports:
-      - "33061:3306"
