@@ -23,12 +23,11 @@ BEGIN
     SELECT object_identity INTO STRICT table_name FROM pg_event_trigger_ddl_commands() WHERE object_type = 'table';
     EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
     EXECUTE 'ALTER TABLE '  || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
-    raise notice 'table: %', REPLACE(table_name, '.', '_');
     EXECUTE 'CREATE TRIGGER t_' || REPLACE(table_name, '.', '_') || '
                  BEFORE UPDATE
                 ON ' || table_name || '
                 FOR EACH ROW
-            EXECUTE PROCEDURE public.upd_updated_at();'
+            EXECUTE PROCEDURE ' || SPLIT_PART(table_name, '.', 1) || '.upd_updated_at();'
         ;
 END;
 $BODY$;
