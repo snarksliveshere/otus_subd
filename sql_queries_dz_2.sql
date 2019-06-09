@@ -334,3 +334,4 @@ COMMENT ON TABLE public.order_processing IS 'Таблица сопровожде
 COMMENT ON COLUMN public.order_processing.user_id IS 'Менеджер сопровождающий заказ';
 COMMENT ON COLUMN public.order_processing.cash_voucher IS 'Чек';
 COMMENT ON COLUMN public.order_processing.comment IS 'Комментарий менеджера';
+

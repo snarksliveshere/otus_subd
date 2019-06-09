@@ -10,3 +10,7 @@ services:
       POSTGRES_DB: md_ecommerce
     ports:
       - "54321:5432"
+#  manager-schema:
+#    image: schemaspy/schemaspy
+#    volumes:
+#      - ./storage/schema:/output

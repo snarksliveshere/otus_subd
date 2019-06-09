@@ -722,3 +722,60 @@ ALTER TABLE public.product_sku2order
         );
 COMMENT ON TABLE public.product_sku2order IS 'Кросс таблица заказ-артикул-товар и количество на каждый артикул-товар';
 COMMENT ON COLUMN public.product_sku2order.quantity IS 'Поле количество на каждый артикул-товар';
+
+
+-- АНАЛИТИКА
+
+CREATE TABLE public.product_price_history
+(
+    id         BIGSERIAL PRIMARY KEY,
+    product_id INT   NOT NULL,
+    price      MONEY NOT NULL
+);
+ALTER TABLE public.product_price_history
+    ADD CONSTRAINT public_product_price_history_product_fk FOREIGN KEY (product_id) REFERENCES public.product (id);
+COMMENT ON TABLE public.product_price_history IS 'Аналитическая таблица предыдущих цен для продукта.';
+
+CREATE TABLE public.sku_price_history
+(
+    id     BIGSERIAL PRIMARY KEY,
+    sku_id INT   NOT NULL,
+    price  MONEY NOT NULL
+);
+ALTER TABLE public.sku_price_history
+    ADD CONSTRAINT public_sku_price_history_product_fk FOREIGN KEY (sku_id) REFERENCES public.sku (id);
+COMMENT ON TABLE public.sku_price_history IS 'Аналитическая таблица предыдущих цен для торговых предложений';
+
+-- АНАЛИТИКА
+
+CREATE OR REPLACE FUNCTION public.get_product_price() RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    INSERT INTO public.product_price_history (price, product_id) VALUES (NEW.price, NEW.id);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trigger_public_sku_price
+    BEFORE UPDATE
+    ON public.sku
+    FOR EACH ROW
+EXECUTE PROCEDURE public.get_sku_price();
+
+CREATE OR REPLACE FUNCTION public.get_sku_price() RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    INSERT INTO public.sku_price_history (price, sku_id) VALUES (NEW.price, NEW.id);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trigger_public_product_price
+    BEFORE UPDATE
+    ON public.product
+    FOR EACH ROW
+EXECUTE PROCEDURE public.get_product_price();
