@@ -1,7 +1,2 @@
 java -jar schemaspy-6.0.0.jar -t pgsql -dp ./jdbc-42.2.5.jar -db md_ecommerce -host localhost -port 54321 -s public -u md -p secret  -o ./output2
 
-
-Добрый день, сгенерировал документацию
-http://htmlpreview.github.io/?https://github.com/snarksliveshere/otus_subd/blob/master/schemaspy/dz2_db_documentation/index.html
-Также, сделал работу по замечаниям от первой домашки.
-pdf & sql запросы лежат в https://github.com/snarksliveshere/otus_subd/tree/master/dz2
