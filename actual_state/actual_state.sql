@@ -228,7 +228,6 @@ COMMENT ON COLUMN public.vendor.logo IS 'Путь на лого производ
 
 COMMENT ON CONSTRAINT public_vendor_name_ui ON public.vendor IS 'Имя должно быть уникально. Все остальное, как это бывает, вполне может дублироваться';
 
-
 CREATE TABLE public.product
 (
     id                  BIGSERIAL PRIMARY KEY,
@@ -1297,6 +1296,7 @@ CREATE TABLE public.cart
 );
 ALTER TABLE public.cart ADD CONSTRAINT public_cart_customer_fk FOREIGN KEY (customer_id) REFERENCES public.customer (id);
 CREATE INDEX ON public.cart (customer_id);
+
 
 
 

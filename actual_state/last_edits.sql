@@ -57,4 +57,3 @@ CREATE INDEX ON public.cart (customer_id);
 
 
 
---
