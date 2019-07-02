@@ -1,2 +1,0 @@
-java -jar schemaspy-6.0.0.jar -t pgsql -dp ./jdbc-42.2.5.jar -db md_ecommerce -host localhost -port 54321 -s public -u md -p secret  -o ./output2
-

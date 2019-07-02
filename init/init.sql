@@ -1,9 +1,3 @@
---DROP SCHEMA public CASCADE;
---CREATE SCHEMA public;
-
-CREATE DATABASE IF NOT EXISTS md_transaction;
-USE md_transaction;
-
 CREATE OR REPLACE FUNCTION public.upd_updated_at() RETURNS TRIGGER
     LANGUAGE plpgsql
 AS
