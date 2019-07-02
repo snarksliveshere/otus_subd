@@ -1,0 +1,16 @@
+alter table CDR partition by range (MONTH(BILL_DATE)) (
+        PARTITION pcdr1 VALUES LESS THAN (02),
+        PARTITION pcdr2 VALUES LESS THAN (03),
+        PARTITION pcdr3 VALUES LESS THAN (04),
+        PARTITION pcdr4 VALUES LESS THAN (05),
+        PARTITION pcdr5 VALUES LESS THAN (06),
+        PARTITION pcdr6 VALUES LESS THAN (07),
+        PARTITION pcdr7 VALUES LESS THAN (08),
+        PARTITION pcdr8 VALUES LESS THAN (09),
+        PARTITION pcdr9 VALUES LESS THAN (10),
+        PARTITION pcdr10 VALUES LESS THAN (11),
+        PARTITION pcdr11 VALUES LESS THAN (12),
+        PARTITION pcdr12 VALUES LESS THAN (13)
+);
+
+explain select * from CDR where BILL_DATE = '2018-01-02'
