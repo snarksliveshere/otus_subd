@@ -1,4 +1,0 @@
-FROM postgres:11.2-alpine
-
-RUN psql -U md md_transaction < /var/init/init.sql
-

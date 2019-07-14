@@ -1,4 +1,4 @@
-version: '3'
+version: '3.5'
 services:
   manager-postgres_transaction:
     image: postgres:11.3-alpine
@@ -11,14 +11,3 @@ services:
       POSTGRES_DB: md_transaction
     ports:
       - "54322:5432"
-  manager-mysql:
-    image: mysql:5.7
-    volumes:
-      - ./storage/docker/mysql:/var/lib/mysql
-      - ./test:/var/www
-    environment:
-      MYSQL_ROOT_PASSWORD: secret
-      MYSQL_USER: root
-      MYSQL_DATABASE: voip
-    ports:
-      - "33062:3306"
