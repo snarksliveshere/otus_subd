@@ -1,6 +1,6 @@
 -- drop schema public cascade
 
-CREATE SCHEMA IF NOT EXISTS public
+CREATE SCHEMA IF NOT EXISTS public;
 CREATE OR REPLACE FUNCTION public.upd_updated_at() RETURNS TRIGGER
     LANGUAGE plpgsql
 AS
