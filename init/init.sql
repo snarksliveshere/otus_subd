@@ -1,4 +1,4 @@
--- drop schema public cascade
+-- drop schema public cascade;
 
 CREATE SCHEMA IF NOT EXISTS public;
 CREATE OR REPLACE FUNCTION public.upd_updated_at() RETURNS TRIGGER
@@ -11,30 +11,78 @@ BEGIN
 END;
 $$;
 
+------------------ LOGGING
+CREATE TABLE public.last_user
+(
+    id           BIGSERIAL PRIMARY KEY,
+    last_user_id BIGINT NOT NULL,
+    session      TEXT NOT NULL
+);
+INSERT INTO public.last_user (last_user_id, session) VALUES (1, 'ssdfsdfsfskfsdfsfsdfsdfsd');
+CREATE TABLE public.logging
+(
+    id      BIGSERIAL PRIMARY KEY,
+    logs jsonb,
+    table_name VARCHAR(255),
+    operation VARCHAR(15),
+    user_id BIGINT
+);
 
-CREATE OR REPLACE FUNCTION public.add_timestamps_to_table() RETURNS event_trigger
+
+
+CREATE OR REPLACE FUNCTION public.add_timestamps_and_logging_to_table() RETURNS event_trigger
     LANGUAGE plpgsql
-AS
-$BODY$
-DECLARE
-    table_name text;
+AS $BODY$
+DECLARE table_name text;
 BEGIN
     SELECT object_identity INTO STRICT table_name FROM pg_event_trigger_ddl_commands() WHERE object_type = 'table';
     EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
-    EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
+    EXECUTE 'ALTER TABLE '  || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
     EXECUTE 'CREATE TRIGGER t_' || REPLACE(table_name, '.', '_') || '
-                 BEFORE UPDATE
+                BEFORE UPDATE
                 ON ' || table_name || '
                 FOR EACH ROW
-          EXECUTE PROCEDURE  public.upd_updated_at();';
+            EXECUTE PROCEDURE public.upd_updated_at();'
+    ;
+    EXECUTE 'CREATE TRIGGER t_logging_' || REPLACE(table_name, '.', '_') || '
+                BEFORE INSERT OR UPDATE
+                ON ' || table_name || '
+                FOR EACH ROW
+            EXECUTE PROCEDURE public.add_to_log();'
+    ;
+    EXECUTE 'CREATE TRIGGER t_logging_delete_' || REPLACE(table_name, '.', '_') || '
+                AFTER DELETE
+                ON ' || table_name || '
+                FOR EACH ROW
+            EXECUTE PROCEDURE public.add_to_log();'
+    ;
 END;
 $BODY$;
 
+CREATE OR replace FUNCTION add_to_log()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    rowdiff JSON;
+BEGIN
+    SELECT json_object_agg(key, json_build_object('old', o.value, 'new', n.value)) into rowdiff
+    FROM json_each(row_to_json(NEW.*)) n
+             FULL OUTER JOIN json_each(row_to_json(OLD.*)) o USING (key)
+    WHERE COALESCE(o.value :: text, '0') != COALESCE(n.value :: text, '0')
+    ;
+    INSERT INTO public.logging (logs, table_name, operation, user_id)
+    VALUES (rowdiff, tg_relname, tg_op, (SELECT last_user_id FROM last_user ORDER BY id DESC LIMIT 1));
+    RETURN NEW;
+END;
+$$;
+
 CREATE EVENT TRIGGER trg_create_table ON ddl_command_end
     WHEN TAG IN ('CREATE TABLE')
-EXECUTE PROCEDURE add_timestamps_to_table();
+EXECUTE PROCEDURE add_timestamps_and_logging_to_table();
 
---------------------------------------------------------------------------------
+
 
 -- ARTICLE SECTION
 CREATE TABLE public.article_category
@@ -1519,38 +1567,6 @@ WITH RECURSIVE cte (n) AS (
 SELECT product_chars_id, title
 FROM cte;
 
-
--- кросс таблица соответствие характеристик продуктами
-INSERT INTO public.product2chars_value (product_id, chars_value_id)
-WITH RECURSIVE cte (n) AS (
-    SELECT 1                                 AS inc
-         , (SELECT MIN(id) FROM product)     AS product_id
-         , (SELECT MIN(id) FROM chars_value) AS chars_value_id
-    UNION ALL
-    SELECT n + 1 As inc
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM product)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )            AS product_id
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM chars_value)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )            AS chars_value_id
-    FROM cte
-    WHERE n < 300
-)
-SELECT product_id, chars_value_id
-FROM cte;
-
-
 INSERT INTO product(title, slug, product_category_id, product_status_id, vendor_id, is_sku, price)
 WITH RECURSIVE cte (n) AS (
     SELECT 1                                    AS inc
@@ -1706,8 +1722,8 @@ INSERT INTO public.delivery (name, is_active)
 VALUES ('самовывоз', TRUE),
        ('курьер', TRUE);
 INSERT INTO public.customer_address
-    (phone, country, zip, region, street, building, room)
-VALUES ('123456', 'Canada', '25825', 'SouthWest', 'prince Albert', '12/4', '202A')
+(phone, country, zip, region, street, building, room)
+VALUES ('123456', 'Canada', '25825', 'SouthWest', 'prince Albert', '12/4', '202A');
 
 INSERT INTO customer ( name
                      , surname
@@ -1770,69 +1786,100 @@ SELECT weight, distance, cart_cost, cost, customer_id, delivery_id, created_at
 FROM cte;
 
 
-INSERT INTO product2order(product_id, shop_order_id, quantity)
-WITH RECURSIVE cte (n) AS (
-    SELECT 1                                       AS inc
-         , (SELECT MIN(id) FROM public.product)    AS product_id
-         , (SELECT MIN(id) FROM public.shop_order) AS shop_order_id
-         , (SELECT 1) :: integer                   AS quantity
-    UNION ALL
-    SELECT n + 1
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM product)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM shop_order)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )
-         , (SELECT trunc(random() * 15000 + (n :: integer + 1 - n ::integer))) :: integer
-
-    FROM cte
-    WHERE n < 1000
-)
-SELECT product_id, shop_order_id, quantity
-FROM cte;
-
-INSERT INTO sku2order(sku_id, shop_order_id, quantity)
-WITH RECURSIVE cte (n) AS (
-    SELECT 1                                       AS inc
-         , (SELECT MIN(id) FROM public.sku)        AS sku_id
-         , (SELECT MIN(id) FROM public.shop_order) AS shop_order_id
-         , (SELECT 1) :: integer                   AS quantity
-    UNION ALL
-    SELECT n + 1
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM sku)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )
-         , (WITH rand_range AS (select id,
-                                       (row_number() OVER ()) AS num
-                                FROM shop_order)
-            SELECT id
-            FROM rand_range
-            WHERE num =
-                  (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
-    )
-         , (SELECT trunc(random() * 15000 + (n :: integer + 1 - n ::integer))) :: integer
-
-    FROM cte
-    WHERE n < 1000
-)
-SELECT sku_id, shop_order_id, quantity
-FROM cte;
 
 
+-- INSERT INTO product2order(product_id, shop_order_id, quantity)
+-- WITH RECURSIVE cte (n) AS (
+--     SELECT 1                                       AS inc
+--          , (SELECT MIN(id) FROM public.product)    AS product_id
+--          , (SELECT MIN(id) FROM public.shop_order) AS shop_order_id
+--          , (SELECT 1) :: integer                   AS quantity
+--     UNION ALL
+--     SELECT n + 1
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM product)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM shop_order)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )
+--          , (SELECT trunc(random() * 15000 + (n :: integer + 1 - n ::integer))) :: integer
+--
+--     FROM cte
+--     WHERE n < 1000
+-- )
+-- SELECT product_id, shop_order_id, quantity
+-- FROM cte;
 
+-- INSERT INTO sku2order(sku_id, shop_order_id, quantity)
+-- WITH RECURSIVE cte (n) AS (
+--     SELECT 1                                       AS inc
+--          , (SELECT MIN(id) FROM public.sku)        AS sku_id
+--          , (SELECT MIN(id) FROM public.shop_order) AS shop_order_id
+--          , (SELECT 1) :: integer                   AS quantity
+--     UNION ALL
+--     SELECT n + 1
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM sku)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM shop_order)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )
+--          , (SELECT trunc(random() * 15000 + (n :: integer + 1 - n ::integer))) :: integer
+--
+--     FROM cte
+--     WHERE n < 1000
+-- )
+-- SELECT sku_id, shop_order_id, quantity
+-- FROM cte;
+
+
+
+-- кросс таблица соответствие характеристик продуктами
+-- INSERT INTO public.product2chars_value (product_id, chars_value_id)
+-- WITH RECURSIVE cte (n) AS (
+--     SELECT 1                                 AS inc
+--          , (SELECT MIN(id) FROM product)     AS product_id
+--          , (SELECT MIN(id) FROM chars_value) AS chars_value_id
+--     UNION ALL
+--     SELECT n + 1 As inc
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM product)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )            AS product_id
+--          , (WITH rand_range AS (select id,
+--                                        (row_number() OVER ()) AS num
+--                                 FROM chars_value)
+--             SELECT id
+--             FROM rand_range
+--             WHERE num =
+--                   (SELECT trunc(random() * MAX(num) + 1 + (n :: integer - n ::integer)) FROM rand_range)
+--     )            AS chars_value_id
+--     FROM cte
+--     WHERE n < 300
+-- )
+-- SELECT product_id, chars_value_id
+-- FROM cte;
