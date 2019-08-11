@@ -1,13 +1,12 @@
 version: '3.5'
 services:
-  manager-postgres_transaction:
+  manager-postgres_sakila:
     image: postgres:11.3-alpine
     volumes:
-      - ./storage/docker/postgres_transaction:/var/lib/postgresql/data
-      - ./init:/docker-entrypoint-initdb.d
+      - ./storage/docker/sakila:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: md
       POSTGRES_PASSWORD: secret
-      POSTGRES_DB: md_transaction
+      POSTGRES_DB: md_sakila
     ports:
-      - "54322:5432"
+      - "54324:5432"
