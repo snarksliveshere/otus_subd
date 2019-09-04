@@ -15,47 +15,62 @@ $$;
 CREATE TABLE public.last_user
 (
     id           BIGSERIAL PRIMARY KEY,
-    last_user_id BIGINT NOT NULL,
-    session      TEXT NOT NULL
+    last_user_id BIGINT                                 NOT NULL,
+    session      TEXT                                   NOT NULL,
+    created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
-INSERT INTO public.last_user (last_user_id, session) VALUES (1, 'ssdfsdfsfskfsdfsfsdfsdfsd');
+INSERT INTO public.last_user (last_user_id, session)
+VALUES (1, 'ssdfsdfsfskfsdfsfsdfsdfsd');
 CREATE TABLE public.logging
 (
-    id      BIGSERIAL PRIMARY KEY,
-    logs jsonb,
+    id         BIGSERIAL PRIMARY KEY,
+    logs       jsonb,
     table_name VARCHAR(255),
-    operation VARCHAR(15),
-    user_id BIGINT
+    operation  VARCHAR(15),
+    user_id    BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
 
+CREATE TRIGGER t_public_last_user
+    BEFORE UPDATE
+    ON public.last_user
+    FOR EACH ROW
+EXECUTE PROCEDURE public.upd_updated_at();
+
+CREATE TRIGGER t_public_logging
+    BEFORE UPDATE
+    ON public.logging
+    FOR EACH ROW
+EXECUTE PROCEDURE public.upd_updated_at();
 
 CREATE OR REPLACE FUNCTION public.add_timestamps_and_logging_to_table() RETURNS event_trigger
     LANGUAGE plpgsql
-AS $BODY$
-DECLARE table_name text;
+AS
+$BODY$
+DECLARE
+    table_name text;
 BEGIN
     SELECT object_identity INTO STRICT table_name FROM pg_event_trigger_ddl_commands() WHERE object_type = 'table';
     EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
-    EXECUTE 'ALTER TABLE '  || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
+    EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
     EXECUTE 'CREATE TRIGGER t_' || REPLACE(table_name, '.', '_') || '
                 BEFORE UPDATE
                 ON ' || table_name || '
                 FOR EACH ROW
-            EXECUTE PROCEDURE public.upd_updated_at();'
-    ;
+            EXECUTE PROCEDURE public.upd_updated_at();';
     EXECUTE 'CREATE TRIGGER t_logging_' || REPLACE(table_name, '.', '_') || '
                 BEFORE INSERT OR UPDATE
                 ON ' || table_name || '
                 FOR EACH ROW
-            EXECUTE PROCEDURE public.add_to_log();'
-    ;
+            EXECUTE PROCEDURE public.add_to_log();';
     EXECUTE 'CREATE TRIGGER t_logging_delete_' || REPLACE(table_name, '.', '_') || '
                 AFTER DELETE
                 ON ' || table_name || '
                 FOR EACH ROW
-            EXECUTE PROCEDURE public.add_to_log();'
-    ;
+            EXECUTE PROCEDURE public.add_to_log();';
 END;
 $BODY$;
 
@@ -67,11 +82,11 @@ $$
 DECLARE
     rowdiff JSON;
 BEGIN
-    SELECT json_object_agg(key, json_build_object('old', o.value, 'new', n.value)) into rowdiff
+    SELECT json_object_agg(key, json_build_object('old', o.value, 'new', n.value))
+    into rowdiff
     FROM json_each(row_to_json(NEW.*)) n
              FULL OUTER JOIN json_each(row_to_json(OLD.*)) o USING (key)
-    WHERE COALESCE(o.value :: text, '0') != COALESCE(n.value :: text, '0')
-    ;
+    WHERE COALESCE(o.value :: text, '0') != COALESCE(n.value :: text, '0');
     INSERT INTO public.logging (logs, table_name, operation, user_id)
     VALUES (rowdiff, tg_relname, tg_op, (SELECT last_user_id FROM last_user ORDER BY id DESC LIMIT 1));
     RETURN NEW;
@@ -81,8 +96,6 @@ $$;
 CREATE EVENT TRIGGER trg_create_table ON ddl_command_end
     WHEN TAG IN ('CREATE TABLE')
 EXECUTE PROCEDURE add_timestamps_and_logging_to_table();
-
-
 
 -- ARTICLE SECTION
 CREATE TABLE public.article_category
@@ -415,8 +428,8 @@ COMMENT ON CONSTRAINT public_product_chars_ui ON public.product_chars IS 'Уни
 CREATE TABLE public.chars_value
 (
     id               BIGSERIAL PRIMARY KEY,
-    value            VARCHAR(255) NOT NULL,
-    product_chars_id BIGINT       NOT NULL,
+    value            TEXT   NOT NULL,
+    product_chars_id BIGINT NOT NULL,
     CONSTRAINT public_value_product_chars_fk_ui UNIQUE (value, product_chars_id)
 );
 ALTER TABLE public.chars_value
@@ -1227,8 +1240,11 @@ CREATE TABLE public.customer_session
     customer_id BIGINT NOT NULL,
     session     TEXT   NOT NULL,
     actions     JSONB,
+    user_agent  TEXT,
+    ip          cidr,
     CONSTRAINT public_customer_customer_session_ui UNIQUE (customer_id, session)
 );
+
 ALTER TABLE public.customer_session
     ADD CONSTRAINT public_customer_session_customer_fk FOREIGN KEY (customer_id) REFERENCES customer (id);
 
@@ -1241,7 +1257,8 @@ CREATE TABLE public.cart
     is_approved BOOLEAN DEFAULT FALSE NOT NULL,
     CONSTRAINT public_cart_cart_customer_session_ui UNIQUE (cart, customer_id, session)
 );
-ALTER TABLE public.cart ADD CONSTRAINT public_cart_customer_fk FOREIGN KEY (customer_id) REFERENCES public.customer (id);
+ALTER TABLE public.cart
+    ADD CONSTRAINT public_cart_customer_fk FOREIGN KEY (customer_id) REFERENCES public.customer (id);
 CREATE INDEX ON public.cart (customer_id);
 
 -- СКЛАДЫ
@@ -1328,7 +1345,6 @@ COMMENT ON CONSTRAINT public_storehouse_available_relationship_check ON public.s
 COMMENT ON INDEX public_storehouse_available_storehouse_index IS 'Индекс на внешний ключ - на склад';
 COMMENT ON INDEX public_storehouse_available_product_index IS 'Индекс на внешний ключ - на товар';
 COMMENT ON INDEX public_storehouse_available_sku_index IS 'Индекс на внешний ключ - на ТП';
-
 
 
 -- filling
@@ -1714,6 +1730,8 @@ VALUES ('person'),
 
 ALTER TABLE public.customer
     ADD COLUMN customer_type_id SMALLINT NOT NULL DEFAULT 1;
+ALTER TABLE public.customer
+    ADD CONSTRAINT public_customer_customer_type_fk FOREIGN KEY (customer_type_id) REFERENCES public.customer_type (id);
 
 INSERT INTO public.payment (name, is_active)
 VALUES ('наличный расчет', TRUE),
@@ -1722,7 +1740,7 @@ INSERT INTO public.delivery (name, is_active)
 VALUES ('самовывоз', TRUE),
        ('курьер', TRUE);
 INSERT INTO public.customer_address
-(phone, country, zip, region, street, building, room)
+    (phone, country, zip, region, street, building, room)
 VALUES ('123456', 'Canada', '25825', 'SouthWest', 'prince Albert', '12/4', '202A');
 
 INSERT INTO customer ( name
@@ -1785,6 +1803,48 @@ WITH RECURSIVE cte (n) AS (
 SELECT weight, distance, cart_cost, cost, customer_id, delivery_id, created_at
 FROM cte;
 
+DROP TRIGGER t_logging_public_product2order ON product2order;
+DROP TRIGGER t_logging_delete_public_product2order ON product2order;
+
+DROP TRIGGER t_logging_public_sku2order ON sku2order;
+DROP TRIGGER t_logging_delete_public_sku2order ON sku2order;
+
+
+CREATE TABLE public.sku_status
+(
+    id     SERIAL PRIMARY KEY,
+    status varchar(100)
+);
+
+ALTER TABLE public.sku
+    ADD COLUMN sku_status_id INT NOT NULL DEFAULT 1;
+INSERT INTO public.sku_status (status)
+VALUES ('В наличии'),
+       ('В производстве'),
+       ('На складе'),
+       ('Скоро в продаже');
+ALTER TABLE public.sku
+    ADD CONSTRAINT public_sku_sku_status_fk FOREIGN KEY (sku_status_id) REFERENCES public.sku_status (id);
+
+
+CREATE TABLE public.chars_value_type
+(
+    id   SERIAL PRIMARY KEY,
+    type varchar(255)
+);
+
+INSERT INTO public.chars_value_type (type)
+VALUES ('int')
+     , ('list_int')
+     , ('numeric')
+     , ('list_numeric')
+     , ('text')
+     , ('list_text')
+;
+ALTER TABLE public.chars_value
+    ADD COLUMN type_id INT NOT NULL DEFAULT 5;
+ALTER TABLE public.chars_value
+    ADD CONSTRAINT public_chars_value_chars_value_type_fk FOREIGN KEY (type_id) REFERENCES public.chars_value_type (id);
 
 
 
@@ -1851,7 +1911,6 @@ FROM cte;
 -- )
 -- SELECT sku_id, shop_order_id, quantity
 -- FROM cte;
-
 
 
 -- кросс таблица соответствие характеристик продуктами

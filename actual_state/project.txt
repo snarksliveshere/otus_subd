@@ -1,0 +1,401 @@
+Проект.
+
+    1. Полнотекстовый поиск на таблицы категорий, товаров, ТП.
+
+На товары и ТП ставим индекс, на категории - нет
+Ищем в поиске title, description, content
+
+Выполнение.
+	ставим расширение pr_tgrm, чтобы поиск мог учитывать опечатки (и ilike тоже разгоняется)
+
+Основная нагрузка идет на таблицы product & sku, там будет более всего записей, поэтому индекс накидываю на них
+(на product_category смысла нет, не так уж много там будет записей)
+
+CREATE INDEX product_title_index_gin_idx ON product
+    USING gin (title gin_trgm_ops);
+CREATE INDEX product_content_index_gin_idx ON product
+    USING gin (content gin_trgm_ops);
+CREATE INDEX product_description_index_gin_idx ON product
+    USING gin (description gin_trgm_ops);
+
+
+CREATE INDEX sku_name_index_gin_idx ON sku
+    USING gin (name gin_trgm_ops);
+CREATE INDEX sku_content_index_gin_idx ON sku
+    USING gin (content gin_trgm_ops);
+CREATE INDEX sku_description_index_gin_idx ON sku
+    USING gin (description gin_trgm_ops);
+
+
+CREATE INDEX article_title_index_gin_idx ON article
+    USING gin (title gin_trgm_ops);
+CREATE INDEX article_content_index_gin_idx ON article
+    USING gin (content gin_trgm_ops);
+CREATE INDEX article_description_index_gin_idx ON article
+    USING gin (description gin_trgm_ops);
+
+
+Поисковый запрос должен мне выдавать продукт и ссылку
+Это пример на категориях, они у меня единственно заполнены вручную, ос
+
+
+WITH RECURSIVE cte_category AS (
+    SELECT id
+         , slug :: TEXT
+    FROM product_category
+    WHERE parent_id = 0
+    UNION ALL
+    SELECT pc.id
+         , (cc.slug || '/' || pc.slug) :: TEXT
+    FROM product_category pc
+             JOIN cte_category cc ON pc.parent_id = cc.id
+)
+SELECT title
+     , description
+     , cc.slug || '/' || p.slug AS slug
+     , 'гарячих юпитером' AS search_query
+FROM product p
+         JOIN cte_category cc ON p.product_category_id = cc.id
+WHERE title % 'гарячих юпитером'
+UNION ALL
+SELECT title
+     , description
+     , cc.slug || '/' || p.slug AS slug
+     , 'гарячих юпитером' AS search_query
+FROM product p
+         JOIN cte_category cc ON p.product_category_id = cc.id
+where description %> 'гарячих юпитером'
+;
+
+title       description                                                                                                         slug                            search_query
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+HR 8799e	Объект под названием HR 8799e относится к классу «горячих Юпитеров», он вращается вокруг звезды в созвездии Пегаса.	planets/hot-jupiter/hr-8799e	гарячих юпитером
+
+В запросе есть опечатка "гарячих юпитером", но так как установлено расширение pg_tgrm, то запрос все равно выдаст мне результат с 'гОрячий юпитер'
+Вариативность окончаний он также учитывает.
+
+**************************************************
+
+ 2. Вывод категорий списком
+
+Сначала ЧПУ добывался вот так:
+
+WITH RECURSIVE cte_category AS (
+    SELECT id
+         , slug :: TEXT
+    FROM product_category
+    WHERE parent_id = 0
+    UNION ALL
+    SELECT pc.id
+         , (cc.slug || '/' || pc.slug) :: TEXT
+    FROM product_category pc
+             JOIN cte_category cc ON pc.parent_id = cc.id
+)
+select slug from cte_category where id = 6;
+
+так как сейчас ЧПУ рассчитывается слишком сложно, я сделаю в product_category отдельное поле slug_path in product_category,
+которое будет заполняться при вставке новых данных или при обновлении (не автоматически, т.к. уже повешено и так триггеры)
+
+CREATE OR REPLACE FUNCTION public.get_slug_path(parentId int, selfSlug text)
+    RETURNS text
+    LANGUAGE plpgsql
+AS $function$
+    declare slugPath text;
+BEGIN
+    WITH RECURSIVE cte_category AS (
+        SELECT id
+             , slug :: TEXT
+        FROM product_category
+        WHERE parent_id = 0
+        UNION ALL
+        SELECT pc.id
+             , (cc.slug || '/' || pc.slug) :: TEXT
+        FROM product_category pc
+                 JOIN cte_category cc ON pc.parent_id = cc.id
+    )
+    SELECT (SELECT slug FROM cte_category cc WHERE id = parentId) || '/' || selfSlug INTO slugPath;
+    RETURN slugPath;
+END;
+$function$
+;
+
+select * from get_slug_path(1, 'test');  выдаст
+galaxies/test
+
+ну и этот путь будет записываться в product_category.slug_path
+
+соответственно, его будет легко вывести
+
+
+Вывод постранично
+
+
+соответственно, мне нужна, допустим, ссылка на продукт и title, у нас url /asteroids/class-a
+select id, slug_path from public.product_category where slug = 'class-a'; -- 25, 'asteroids/class-a'
+--  page  = 4;
+
+SELECT title
+--    :slug_path || '/' || slug
+     , 'asteroids/class-a' || '/' || slug AS slug
+FROM product p
+         JOIN (SELECT id
+               FROM product
+                where product_category_id = 25
+                OFFSET 50* (1 - 1)
+               LIMIT 50) p2 ON p.id = p2.id;
+
+
+**************************************************************
+
+    3. Вывод карточки товара
+
+-- URL   site.com/asteroids/class-b/test-product-slug
+
+slug уникален для категории, следовательно, ищем продукт с чпу и категорией
+
+-- URL   site.com/asteroids/class-b/test-product-slug
+
+SELECT p.title
+     , p.price
+     , p.old_price
+     , p.content
+     , p.id -- 636
+     , p.is_sku
+FROM public.product p
+         JOIN product_category c ON p.product_category_id = c.id
+WHERE p.slug = 'test-product-slug'
+  AND c.slug = 'class-b'
+      ;
+
+--  достаем характеристики
+
+SELECT
+       cv.value
+     , pc.name
+FROM public.product2chars_value p2cv
+         JOIN chars_value cv on p2cv.chars_value_id = cv.id
+         JOIN product_chars pc on cv.product_chars_id = pc.id
+WHERE p2cv.product_id = 636
+
+
+-- если p.is_sku TRUE
+-- забираю лист ТП, если есть, а далее, при щелчке на каждом из ТП аяксом подтягиваются его характеристики по id (как у продукта)
+--  т.к. в прошлом запросе я получил product.id, то по нему просто без всяких join забираю ТП
+select s.name
+     , s.id
+from public.sku s where product_id = 636;
+
+-- просто, эффективно и очевидно. С этим работать легко мне и другим программерам. 
+
+--fields выводятся так же, как и характеристики
+
+************************************************************
+
+    4. Заказ
+
+запись заказа
+
+BEGIN;
+
+SELECT available, reserve
+FROM public.storehouse_available
+WHERE product_id = :product_id FOR UPDATE;
+
+UPDATE public.storehouse_available
+SET available = available - 1,
+    reserve   = reserve + 1
+WHERE product_id = :product_id;
+
+INSERT INTO shop_order ( cart_cost
+                       , customer_id
+                       , delivery_id)
+VALUES ( :cart_cost
+       , :customer_id
+       , :delivery_id) RETURNING id;
+
+либо
+WITH cte AS (
+INSERT INTO shop_order ( cart_cost
+                       , customer_id
+                       , delivery_id)
+VALUES ( :cart_cost
+       , :customer_id
+       , :delivery_id) RETURNING id
+)
+
+INSERT INTO product2order (product_id, shop_order_id) VALUES (:product_id, (SELECT id FROM cte));
+
+COMMIT;
+
+
+получение заказа
+допустим, так, будет на 1 запись 1 заказ
+
+select
+    so.customer_id
+     , jsonb_agg(json_build_object(p2o.product_id, p2o.quantity))
+     , so.id
+     , so.cost
+FROM order_processing op
+         JOIN order_status os on op.order_status_id = os.id
+         JOIN shop_order so on op.shop_order_id = so.id
+         JOIN product2order p2o on so.id = p2o.shop_order_id
+         JOIN product p on p2o.product_id = p.id
+where os.name = 'В обработке'
+GROUP BY so.customer_id, so.id, so.cost
+
+
+********************************************************************
+
+    5. Процедуры
+
+Подготовительная часть
+
+CREATE OR REPLACE FUNCTION public.upd_updated_at() RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION public.add_timestamps_and_logging_to_table() RETURNS event_trigger
+    LANGUAGE plpgsql
+AS $BODY$
+DECLARE table_name text;
+BEGIN
+    SELECT object_identity INTO STRICT table_name FROM pg_event_trigger_ddl_commands() WHERE object_type = 'table';
+    EXECUTE 'ALTER TABLE ' || table_name || ' ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
+    EXECUTE 'ALTER TABLE '  || table_name || ' ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;';
+    EXECUTE 'CREATE TRIGGER t_' || REPLACE(table_name, '.', '_') || '
+                BEFORE UPDATE
+                ON ' || table_name || '
+                FOR EACH ROW
+            EXECUTE PROCEDURE public.upd_updated_at();'
+    ;
+    EXECUTE 'CREATE TRIGGER t_logging_' || REPLACE(table_name, '.', '_') || '
+                BEFORE INSERT OR UPDATE
+                ON ' || table_name || '
+                FOR EACH ROW
+            EXECUTE PROCEDURE public.add_to_log();'
+    ;
+    EXECUTE 'CREATE TRIGGER t_logging_delete_' || REPLACE(table_name, '.', '_') || '
+                AFTER DELETE
+                ON ' || table_name || '
+                FOR EACH ROW
+            EXECUTE PROCEDURE public.add_to_log();'
+    ;
+END;
+$BODY$;
+
+CREATE OR replace FUNCTION add_to_log()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    rowdiff JSON;
+BEGIN
+    SELECT json_object_agg(key, json_build_object('old', o.value, 'new', n.value)) into rowdiff
+    FROM json_each(row_to_json(NEW.*)) n
+             FULL OUTER JOIN json_each(row_to_json(OLD.*)) o USING (key)
+    WHERE COALESCE(o.value :: text, '0') != COALESCE(n.value :: text, '0')
+    ;
+    INSERT INTO public.logging (logs, table_name, operation, user_id)
+    VALUES (rowdiff, tg_relname, tg_op, (SELECT last_user_id FROM last_user ORDER BY id DESC LIMIT 1));
+    RETURN NEW;
+END;
+$$;
+
+CREATE EVENT TRIGGER trg_create_table ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE')
+EXECUTE PROCEDURE add_timestamps_and_logging_to_table();
+
+
+------------------ LOGGING
+
+CREATE TABLE public.last_user
+(
+    id           BIGSERIAL PRIMARY KEY,
+    last_user_id BIGINT NOT NULL,
+    session      TEXT NOT NULL
+);
+INSERT INTO public.last_user (last_user_id, session) VALUES (1, 'ssdfsdfsfskfsdfsfsdfsdfsd');
+CREATE TABLE public.logging
+(
+    id      BIGSERIAL PRIMARY KEY,
+    logs jsonb,
+    table_name VARCHAR(255),
+    operation VARCHAR(15),
+    user_id BIGINT
+);
+
+
+DROP TRIGGER t_logging_public_product2order ON product2order;
+DROP TRIGGER t_logging_delete_public_product2order ON product2order;
+
+DROP TRIGGER t_logging_public_sku2order ON sku2order;
+DROP TRIGGER t_logging_delete_public_sku2order ON sku2order;
+
+DROP TRIGGER t_logging_public_shop_order ON shop_order;
+DROP TRIGGER t_logging_delete_public_shop_order ON shop_order;
+
+
+
+Так, что тут, собственно, происходит
+
+1. функция public.upd_updated_at() автоматически накидывает текущий таймстепп при каждом update
+2. Таблицы last_user & logging нужны для логирования
+
+(user берется из таблицы last_user, то, как он туда попадает - это ответственно бэка - что-то вроде функционала посредника при выполнении
+операции вставки, обновления, удаления, юзер и сессия пишется в эту таблицу прежде чем выполняется сама операция
+пока что там просто dummy данные
+)
+Далее, при создании любой таблицы
+1. автоматически создается 2 поля (created_at, updated_at)
+2. теперь вешается еще два триггера, связанные с автологированием, 1 триггер на вставку и обновление
+и еще один - на удаление.
+
+Заметка относительно корректного юзера, да, могут разные юзеры работать в одинаковое время, но поле юзер здесь только для удобства, на деле, у нас есть поля created_at & updated_at, а коллизии по этим полям уже крайне маловероятны
+
+
+-- price history
+
+
+CREATE OR REPLACE FUNCTION public.get_sku_price()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO public.sku_price_history (price, sku_id) VALUES (NEW.price, NEW.id);
+    RETURN NEW;
+END;
+$function$
+;
+
+
+CREATE OR REPLACE FUNCTION public.get_product_price()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO public.product_price_history (price, product_id) VALUES (NEW.price, NEW.id);
+    RETURN NEW;
+END;
+$function$
+;
+
+
+create trigger trigger_public_product_price after insert
+    or update
+        on
+        public.product for each row execute procedure get_product_price();
+
+
+create trigger trigger_public_sku_price after insert
+    or update
+        on
+        public.sku for each row execute procedure get_sku_price();
